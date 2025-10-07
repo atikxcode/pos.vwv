@@ -270,16 +270,16 @@ export default function POSLoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-50 via-blue-50 to-indigo-100">
-      <div className="w-full max-w-md p-8">
+      <div className="w-[70%] max-w-2xl p-8">
         <div className="bg-white rounded-2xl shadow-xl p-8 space-y-6">
           {/* Logo and Title */}
           <div className="text-center space-y-3">
             <div className="flex justify-center">
-              <div className="bg-purple-100 p-4 rounded-full">
-                <Store size={48} className="text-purple-600" />
-              </div>
+              
+                <img className='h-[150px] w-[]' src="/SocialMediaLogo/company_logo.jpg" alt="" />
+              
             </div>
-            <h1 className="text-3xl font-bold text-gray-900">VWV POS System</h1>
+            <h1 className="text-3xl font-bold text-gray-900">VWV POS SYSTEM</h1>
             <p className="text-gray-600 flex items-center justify-center gap-2">
               <ShieldCheck size={18} className="text-purple-600" />
               Point of Sale Login
@@ -422,7 +422,8 @@ export default function POSLoginPage() {
             <p className="text-center text-sm text-gray-600">
               Don't have POS access?{' '}
               <a
-                href="/"
+              target='_blank'
+                href="https://vwv-bd.vercel.app/"
                 className="text-purple-600 hover:text-purple-700 font-medium hover:underline"
               >
                 Go to Main Site
