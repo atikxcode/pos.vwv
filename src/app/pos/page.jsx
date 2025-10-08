@@ -32,12 +32,12 @@ export default function POSPage() {
   useEffect(() => {
     const fetchUserDetails = async () => {
       if (!user?.email) {
-        console.log('No user email found')
+        
         return
       }
 
       try {
-        console.log('Fetching user details for:', user.email)
+        
         const token = localStorage.getItem('auth-token')
         const response = await fetch(`/api/user?email=${encodeURIComponent(user.email)}`, {
           headers: {
@@ -62,14 +62,10 @@ export default function POSPage() {
             }
             setUserInfo(userDetails)
             localStorage.setItem('user-info', JSON.stringify(userDetails))
-            console.log('POS User Details Loaded:', {
-              email: data.user.email,
-              role: data.user.role,
-              branch: data.user.branch
-            })
+            
           }
         } else {
-          console.error('Failed to fetch user details:', response.status)
+          
           Swal.fire({
             icon: 'error',
             title: 'Access Denied',
@@ -80,7 +76,7 @@ export default function POSPage() {
           })
         }
       } catch (error) {
-        console.error('Error fetching user details:', error)
+        
       } finally {
         setLoading(false)
       }
@@ -111,7 +107,7 @@ export default function POSPage() {
     }
   }, [user, router])
 
-  // Search products by branch
+  // 🔥 UPDATED: Search products by branch and filter out 0 stock
   const handleSearch = async (query) => {
     if (!query.trim() || !userInfo?.branch) {
       setProducts([])
@@ -131,14 +127,22 @@ export default function POSPage() {
       
       if (response.ok) {
         const data = await response.json()
-        console.log('Products fetched:', data.products?.length || 0)
-        setProducts(data.products || [])
+        
+        // 🔥 FILTER: Only show products with stock > 0 for current branch
+        const stockKey = `${userInfo.branch}_stock`
+        const productsWithStock = (data.products || []).filter(product => {
+          const stock = product.stock?.[stockKey] || 0
+          return stock > 0
+        })
+        
+       
+        setProducts(productsWithStock)
       } else {
-        console.error('Failed to fetch products:', response.status)
+       
         setProducts([])
       }
     } catch (error) {
-      console.error('Error searching products:', error)
+      
       setProducts([])
     }
   }
@@ -309,7 +313,7 @@ export default function POSPage() {
         cashier: userInfo.name || 'POS User'
       }
 
-      console.log('POS Sale Data:', JSON.stringify(saleData, null, 2))
+      
 
       const token = localStorage.getItem('auth-token')
       const response = await fetch('/api/sales', {
@@ -322,7 +326,7 @@ export default function POSPage() {
       })
 
       if (response.status === 401) {
-        console.log('Token expired')
+        
         localStorage.removeItem('auth-token')
         localStorage.removeItem('user-info')
         router.push('/')
@@ -331,7 +335,7 @@ export default function POSPage() {
 
       if (response.ok) {
         const result = await response.json()
-        console.log('Sale saved successfully:', result)
+        
 
         Swal.fire({
           icon: 'success',
@@ -358,7 +362,7 @@ export default function POSPage() {
         throw new Error(errorData.error || 'Failed to process sale')
       }
     } catch (error) {
-      console.error('POS Sale Error:', error)
+      
       Swal.fire({
         icon: 'error',
         title: 'Sale Failed',
@@ -468,7 +472,7 @@ export default function POSPage() {
                 />
               </div>
 
-              {/* Search Results Dropdown */}
+              {/* 🔥 UPDATED: Search Results Dropdown - Removed stock display */}
               {products.length > 0 && (
                 <div className="mt-2 max-h-96 overflow-y-auto border border-gray-200 rounded-lg">
                   {products.map((product) => (
@@ -484,9 +488,6 @@ export default function POSPage() {
                         </div>
                         <div className="text-right">
                           <p className="text-xl font-bold text-purple-600">৳{product.price}</p>
-                          <p className="text-xs text-gray-500">
-                            Stock: {product.stock?.[`${userInfo?.branch}_stock`] || 0}
-                          </p>
                         </div>
                       </div>
                     </div>
