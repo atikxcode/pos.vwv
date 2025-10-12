@@ -433,7 +433,9 @@ export default function POSPage() {
       <div className="bg-purple-600 text-white shadow-lg">
         <div className="max-w-7xl mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <Store size={32} />
+            <div>
+              <img className='w-[80px] rounded-[50%]' src="/SocialMediaLogo/company_logo.jpg" alt="" />
+            </div>
             <div>
               <h1 className="text-xl font-bold">VWV POS</h1>
               <p className="text-sm opacity-90">
