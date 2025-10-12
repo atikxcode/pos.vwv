@@ -148,7 +148,7 @@ function generateSaleId() {
 
 // 🔧 SECURITY: Validate payment method
 function validatePaymentMethod(method) {
-  const validMethods = ['cash', 'bkash', 'nagad', 'visa', 'mastercard', 'debit_card']
+  const validMethods = ['cash', 'bkash', 'nagad', 'rocket', 'visa', 'mastercard', 'credit_card', 'debit_card', 'american_express']
   const validTypes = ['cash', 'mobile_banking', 'card']
   
   return (
