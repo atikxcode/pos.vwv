@@ -28,84 +28,83 @@ export default function POSPage() {
     reset,
   } = useForm()
 
-  // Get POS user's branch from database
-  useEffect(() => {
-    const fetchUserDetails = async () => {
-      if (!user?.email) {
-        
-        return
-      }
-
-      try {
-        
-        const token = localStorage.getItem('auth-token')
-        const response = await fetch(`/api/user?email=${encodeURIComponent(user.email)}`, {
-          headers: {
-            'Authorization': `Bearer ${token}`
-          }
-        })
-
-        if (response.status === 401) {
-          console.log('Token expired, redirecting to login')
-          localStorage.removeItem('auth-token')
-          localStorage.removeItem('user-info')
-          router.push('/')
+    // Combined authentication and role check
+    useEffect(() => {
+      const fetchUserDetails = async () => {
+        // Check if user is logged in
+        if (!user?.email) {
+          setLoading(false)
           return
         }
 
-        if (response.ok) {
-          const data = await response.json()
-          if (data.user) {
-            const userDetails = {
-              ...data.user,
-              branch: data.user.branch?.toLowerCase()
-            }
-            setUserInfo(userDetails)
-            localStorage.setItem('user-info', JSON.stringify(userDetails))
-            
-          }
-        } else {
+        try {
+          const token = localStorage.getItem('auth-token')
           
-          Swal.fire({
-            icon: 'error',
-            title: 'Access Denied',
-            text: 'Could not load user details',
-            confirmButtonColor: '#7c3aed',
-          }).then(() => {
-            router.push('/')
+          // If no token, don't redirect yet - wait for Firebase auth
+          if (!token) {
+            setLoading(false)
+            return
+          }
+
+          const response = await fetch(`/api/user?email=${encodeURIComponent(user.email)}`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
           })
+
+          if (response.status === 401) {
+            console.log('Token expired, redirecting to login')
+            localStorage.removeItem('auth-token')
+            localStorage.removeItem('user-info')
+            router.push('/')
+            return
+          }
+
+          if (response.ok) {
+            const data = await response.json()
+            if (data.user) {
+              const userDetails = {
+                ...data.user,
+                branch: data.user.branch?.toLowerCase()
+              }
+              
+              // ✅ CHECK: Verify role BEFORE setting state
+              if (userDetails.role !== 'pos' && userDetails.role !== 'admin') {
+                Swal.fire({
+                  icon: 'error',
+                  title: 'Access Denied',
+                  text: 'POS role required',
+                  confirmButtonColor: '#7c3aed',
+                }).then(() => {
+                  router.push('/')
+                })
+                return
+              }
+              
+              setUserInfo(userDetails)
+              localStorage.setItem('user-info', JSON.stringify(userDetails))
+            }
+          } else {
+            Swal.fire({
+              icon: 'error',
+              title: 'Access Denied',
+              text: 'Could not load user details',
+              confirmButtonColor: '#7c3aed',
+            }).then(() => {
+              router.push('/')
+            })
+          }
+        } catch (error) {
+          console.error('Error fetching user details:', error)
+        } finally {
+          setLoading(false)
         }
-      } catch (error) {
-        
-      } finally {
-        setLoading(false)
       }
-    }
 
-    fetchUserDetails()
-  }, [user, router])
+      fetchUserDetails()
+    }, [user, router]) // Only user and router in dependencies
 
-  // Check authentication
-  useEffect(() => {
-    if (!user) {
-      router.push('/')
-      return
-    }
-    
-    const storedUserInfo = JSON.parse(localStorage.getItem('user-info') || '{}')
-    
-    if (storedUserInfo.role !== 'pos' && storedUserInfo.role !== 'admin') {
-      Swal.fire({
-        icon: 'error',
-        title: 'Access Denied',
-        text: 'POS role required',
-        confirmButtonColor: '#7c3aed',
-      }).then(() => {
-        router.push('/')
-      })
-      return
-    }
-  }, [user, router])
+
 
   // 🔥 UPDATED: Search products by branch and filter out 0 stock
   const handleSearch = async (query) => {
@@ -275,9 +274,10 @@ export default function POSPage() {
       const totalAmount = calculateGrandTotal()
       const adjustedAmount = calculateAdjustedAmount()
 
-      // Prepare sale data matching backend expectations
+
+
       const saleData = {
-        phone: data.phone, // Mandatory phone number
+        phone: data.phone,
         items: cartItems.map(item => ({
           productId: item._id,
           productName: item.name,
@@ -290,13 +290,16 @@ export default function POSPage() {
         totalAmount: totalAmount,
         discount: discount,
         adjustedAmount: adjustedAmount,
-        paymentMethod: paymentMethod, // Single payment method
+        paymentMethod: paymentMethod,
         payment: {
           methods: [{
             id: paymentMethod,
             name: paymentMethod.charAt(0).toUpperCase() + paymentMethod.slice(1),
+            // ✅ FIXED: Add bank as separate type
             type: paymentMethod === 'cash' ? 'cash' : 
-                  ['bkash', 'nagad', 'rocket'].includes(paymentMethod) ? 'mobile_banking' : 'card',
+                  ['bkash', 'nagad', 'rocket'].includes(paymentMethod) ? 'mobile_banking' : 
+                  paymentMethod === 'bank' ? 'bank_transfer' :  // ← ADD THIS LINE
+                  'card',
             amount: adjustedAmount
           }],
           totalAmount: totalAmount,
@@ -307,11 +310,15 @@ export default function POSPage() {
           name: 'Walk-in Customer',
           phone: data.phone
         },
+        // ✅ FIXED: Add bank as separate paymentType
         paymentType: paymentMethod === 'cash' ? 'cash' : 
-                     ['bkash', 'nagad', 'rocket'].includes(paymentMethod) ? 'mobile_banking' : 'card',
+                    ['bkash', 'nagad', 'rocket'].includes(paymentMethod) ? 'mobile_banking' : 
+                    paymentMethod === 'bank' ? 'bank_transfer' :  // ← ADD THIS LINE
+                    'card',
         status: 'completed',
         cashier: userInfo.name || 'POS User'
       }
+
 
       
 
@@ -654,6 +661,7 @@ export default function POSPage() {
                   <option value="bkash">bKash</option>
                   <option value="nagad">Nagad</option>
                   <option value="rocket">Rocket</option>
+                  <option value="bank">Bank</option>
                   <option value="credit_card">Credit Card</option>
                   <option value="debit_card">Debit Card</option>
                   <option value="american_express">American Express</option>
