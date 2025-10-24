@@ -4,7 +4,6 @@ import { NextResponse } from 'next/server'
 import { ObjectId } from 'mongodb'
 import { verifyApiToken, requireRole, createAuthError, checkRateLimit } from '../../../../lib/auth'
 
-
 // 🔐 SECURITY CONSTANTS
 const MAX_ITEMS_PER_SALE = 100
 const MAX_QUANTITY_PER_ITEM = 1000
@@ -13,16 +12,14 @@ const MAX_CUSTOMER_PHONE_LENGTH = 20
 const MAX_REQUEST_BODY_SIZE = 100000 // 100KB for sales
 const MAX_SEARCH_LENGTH = 100
 
-
 // Rate limiting per role
 const RATE_LIMITS = {
   PUBLIC: { requests: 50, windowMs: 60000 },
   ADMIN: { requests: 500, windowMs: 60000 },
   MODERATOR: { requests: 200, windowMs: 60000 },
-  POS: { requests: 200, windowMs: 60000 }, // 🔥 NEW: POS rate limit
+  POS: { requests: 200, windowMs: 60000 },
   MANAGER: { requests: 300, windowMs: 60000 },
 }
-
 
 // Enhanced error handling wrapper
 function handleApiError(error, context = '') {
@@ -30,7 +27,6 @@ function handleApiError(error, context = '') {
   console.error('Error stack:', error.stack)
   
   const isDevelopment = process.env.NODE_ENV === 'development'
-
 
   return NextResponse.json(
     {
@@ -47,7 +43,6 @@ function handleApiError(error, context = '') {
   )
 }
 
-
 // 🔐 SECURITY: Enhanced request logging
 function logRequest(req, method) {
   const timestamp = new Date().toISOString()
@@ -60,25 +55,22 @@ function logRequest(req, method) {
   console.log('URL:', req.url)
 }
 
-
 // 🔐 SECURITY: Input sanitization
 function sanitizeInput(input) {
   if (typeof input !== 'string') return input
   
   return input
-    .replace(/[<>"'%;()&+${}]/g, '') // Remove dangerous chars
-    .replace(/javascript:/gi, '') // Remove JS protocols
-    .replace(/data:/gi, '') // Remove data URLs
+    .replace(/[<>"'%;()&+${}]/g, '')
+    .replace(/javascript:/gi, '')
+    .replace(/data:/gi, '')
     .trim()
-    .substring(0, 1000) // Limit length
+    .substring(0, 1000)
 }
-
 
 // 🔐 SECURITY: Validate ObjectId
 function isValidObjectId(id) {
   return /^[0-9a-fA-F]{24}$/.test(id)
 }
-
 
 // 🔐 SECURITY: Get user IP
 function getUserIP(req) {
@@ -87,7 +79,6 @@ function getUserIP(req) {
          'unknown'
 }
 
-
 // 🔥 ENHANCED: Date validation helper function
 function validateDate(dateString, fieldName) {
   if (!dateString) return null
@@ -95,24 +86,20 @@ function validateDate(dateString, fieldName) {
   try {
     const date = new Date(dateString)
     
-    // Check if date is valid
     if (isNaN(date.getTime())) {
       throw new Error(`Invalid ${fieldName}: ${dateString}`)
     }
     
-    // Check if year is reasonable (between 1900 and 2100)
     const year = date.getFullYear()
     if (year < 1900 || year > 2100) {
       throw new Error(`Invalid ${fieldName} year: ${year}. Must be between 1900 and 2100.`)
     }
     
-    // Return normalized date
     return date
   } catch (error) {
     throw new Error(`Date validation failed for ${fieldName}: ${error.message}`)
   }
 }
-
 
 // 🔥 ENHANCED: JWT-based authentication with role verification
 async function getUserInfo(req) {
@@ -122,16 +109,13 @@ async function getUserInfo(req) {
       return { role: 'public', branch: null, userId: null, name: null, isAuthenticated: false }
     }
     
-    // Extract token from Bearer header
     const token = authHeader.substring('Bearer '.length).trim()
     
-    // Check for temp token (development mode)
     if (token === 'temp-admin-token-for-development') {
       console.log('🔧 Using temporary admin token for development')
       return { role: 'admin', branch: null, userId: 'temp-admin', name: 'Admin', isAuthenticated: true }
     }
     
-    // 🔥 CRITICAL: Verify JWT token and extract user info
     const user = await verifyApiToken(req)
     console.log('✅ JWT verification successful:', { role: user.role, branch: user.branch, userId: user.userId })
     
@@ -139,7 +123,7 @@ async function getUserInfo(req) {
       role: user.role || 'user', 
       branch: user.branch || null, 
       userId: user.userId || user.id,
-      name: user.name || 'Unknown User', // 🔥 NEW: Store user name
+      name: user.name || 'Unknown User',
       isAuthenticated: true 
     }
   } catch (authError) {
@@ -147,7 +131,6 @@ async function getUserInfo(req) {
     return { role: 'public', branch: null, userId: null, name: null, isAuthenticated: false }
   }
 }
-
 
 // 🔧 ENHANCED: Generate secure sale ID with better format
 function generateSaleId() {
@@ -157,18 +140,10 @@ function generateSaleId() {
   return `SALE-${timestamp}-${random}`
 }
 
-
-// 🔧 SECURITY: Validate payment method
+// 🔧 SECURITY: Validate payment method - UPDATED FOR CASH, BKASH, BANK ONLY
 function validatePaymentMethod(method) {
-  const validMethods = [
-    'cash', 'bkash', 'nagad', 'rocket', 
-    'bank', 'bank_transfer',
-    'visa', 'mastercard', 'debit_card', 'credit_card', 'american_express'
-  ]
-  const validTypes = [
-    'cash', 'mobile_banking', 'card', 
-    'bank_transfer'
-  ]
+  const validMethods = ['cash', 'bkash', 'bank', 'bank_transfer']
+  const validTypes = ['cash', 'mobile_banking', 'bank_transfer']
   
   return (
     method &&
@@ -183,7 +158,6 @@ function validatePaymentMethod(method) {
     method.amount <= 999999
   )
 }
-
 
 // 🔧 SECURITY: Validate sale item
 function validateSaleItem(item) {
@@ -207,25 +181,20 @@ function validateSaleItem(item) {
     typeof item.totalPrice === 'number' &&
     item.totalPrice >= 0 &&
     item.totalPrice <= 999999 &&
-    Math.abs(item.totalPrice - (item.unitPrice * item.quantity)) < 0.01 // Validate calculation
+    Math.abs(item.totalPrice - (item.unitPrice * item.quantity)) < 0.01
   )
 }
-
 
 // 🔥 ENHANCED: POST method with JWT authentication and role-based access
 export async function POST(req) {
   const ip = getUserIP(req)
   logRequest(req, 'POST')
 
-
   try {
     console.log('POST: Starting sale creation process...')
 
-
-    // 🔥 CRITICAL: Require JWT authentication
     const userInfo = await getUserInfo(req)
     console.log('POST: User info obtained:', userInfo)
-
 
     if (!userInfo.isAuthenticated) {
       return NextResponse.json(
@@ -234,8 +203,6 @@ export async function POST(req) {
       )
     }
 
-
-    // 🔥 ROLE-BASED ACCESS: Admin, moderator, and POS can create sales
     if (!['admin', 'moderator', 'pos'].includes(userInfo.role)) {
       return NextResponse.json(
         { error: 'Access denied. Only admins, moderators, and POS users can create sales.' },
@@ -243,8 +210,6 @@ export async function POST(req) {
       )
     }
 
-
-    // Apply rate limiting based on user role
     const rateLimit = RATE_LIMITS[userInfo.role?.toUpperCase()] || RATE_LIMITS.PUBLIC
     if (typeof checkRateLimit === 'function' && userInfo.role !== 'admin') {
       try {
@@ -254,12 +219,9 @@ export async function POST(req) {
       }
     }
 
-
     console.log('POST: Reading request body...')
     const body = await req.json()
 
-
-    // Validate request body size
     const bodySize = JSON.stringify(body).length
     if (bodySize > MAX_REQUEST_BODY_SIZE) {
       console.log('POST: Request body too large:', bodySize)
@@ -269,7 +231,6 @@ export async function POST(req) {
       )
     }
 
-
     console.log('POST: Processing sale creation...', {
       itemsCount: body.items?.length || 0,
       totalAmount: body.totalAmount,
@@ -278,15 +239,12 @@ export async function POST(req) {
       paymentMethod: body.paymentMethod
     })
 
-
-    // 🔐 SECURITY: Validate required fields
     if (!body.items || !Array.isArray(body.items) || body.items.length === 0) {
       return NextResponse.json(
         { error: 'Items are required and must be a non-empty array' },
         { status: 400 }
       )
     }
-
 
     if (body.items.length > MAX_ITEMS_PER_SALE) {
       return NextResponse.json(
@@ -295,8 +253,6 @@ export async function POST(req) {
       )
     }
 
-
-    // 🔥 MODERATOR/POS BRANCH VALIDATION: Ensure they can only create sales for their branch
     if (['moderator', 'pos'].includes(userInfo.role) && userInfo.branch) {
       for (let i = 0; i < body.items.length; i++) {
         const item = body.items[i]
@@ -309,8 +265,6 @@ export async function POST(req) {
       }
     }
 
-
-    // 🔐 SECURITY: Validate all items
     for (let i = 0; i < body.items.length; i++) {
       if (!validateSaleItem(body.items[i])) {
         console.log('POST: Invalid item at index', i, body.items[i])
@@ -321,15 +275,12 @@ export async function POST(req) {
       }
     }
 
-
-    // 🔐 SECURITY: Validate payment information
     if (!body.payment || typeof body.payment !== 'object') {
       return NextResponse.json(
         { error: 'Payment information is required' },
         { status: 400 }
       )
     }
-
 
     if (!body.payment.methods || !Array.isArray(body.payment.methods) || body.payment.methods.length === 0) {
       return NextResponse.json(
@@ -338,8 +289,6 @@ export async function POST(req) {
       )
     }
 
-
-    // Validate each payment method
     for (const method of body.payment.methods) {
       if (!validatePaymentMethod(method)) {
         console.log('POST: Invalid payment method:', method)
@@ -350,12 +299,10 @@ export async function POST(req) {
       }
     }
 
-
-    // 🔐 SECURITY: Validate numeric fields
     const totalAmount = parseFloat(body.totalAmount)
     const totalPaid = parseFloat(body.payment.totalPaid)
-    const discount = parseFloat(body.discount) || 0 // 🔥 NEW: Discount field
-    const adjustedAmount = parseFloat(body.adjustedAmount) || totalAmount - discount // 🔥 NEW: Adjusted amount
+    const discount = parseFloat(body.discount) || 0
+    const adjustedAmount = parseFloat(body.adjustedAmount) || totalAmount - discount
     
     if (isNaN(totalAmount) || totalAmount <= 0 || totalAmount > 9999999) {
       return NextResponse.json(
@@ -364,14 +311,12 @@ export async function POST(req) {
       )
     }
 
-
     if (isNaN(totalPaid) || totalPaid <= 0 || totalPaid > 9999999) {
       return NextResponse.json(
         { error: 'Invalid total paid amount' },
         { status: 400 }
       )
     }
-
 
     if (totalPaid < adjustedAmount) {
       return NextResponse.json(
@@ -380,8 +325,6 @@ export async function POST(req) {
       )
     }
 
-
-    // 🔥 NEW: Validate discount
     if (discount < 0 || discount > totalAmount) {
       return NextResponse.json(
         { error: 'Invalid discount amount' },
@@ -389,11 +332,8 @@ export async function POST(req) {
       )
     }
 
-
-    // 🔐 SECURITY: Sanitize customer information
     const customerName = sanitizeInput(body.customer?.name || 'Walk-in Customer')
     const customerPhone = sanitizeInput(body.customer?.phone || '')
-
 
     if (customerName.length > MAX_CUSTOMER_NAME_LENGTH) {
       return NextResponse.json(
@@ -402,7 +342,6 @@ export async function POST(req) {
       )
     }
 
-
     if (customerPhone && (customerPhone.length > MAX_CUSTOMER_PHONE_LENGTH || !/^[+\-0-9\s()]{0,20}$/.test(customerPhone))) {
       return NextResponse.json(
         { error: 'Invalid customer phone format' },
@@ -410,8 +349,6 @@ export async function POST(req) {
       )
     }
 
-
-    // 🔐 SECURITY: Validate status
     const status = sanitizeInput(body.status || 'completed')
     if (!['completed', 'pending', 'cancelled', 'refunded'].includes(status)) {
       return NextResponse.json(
@@ -420,53 +357,41 @@ export async function POST(req) {
       )
     }
 
-
     const paymentType = sanitizeInput(body.paymentType || 'cash')
-    if (!['cash', 'mobile_banking', 'card', 'bank_transfer', 'mixed'].includes(paymentType)) {
+    if (!['cash', 'mobile_banking', 'bank_transfer', 'mixed'].includes(paymentType)) {
       return NextResponse.json(
         { error: 'Invalid payment type' },
         { status: 400 }
       )
     }
 
-
     console.log('POST: Connecting to database...')
     const client = await clientPromise
     const db = client.db('VWV')
 
-
-    // Start a transaction for data consistency
     const session = client.startSession()
     console.log('POST: Starting database transaction...')
-
 
     try {
       let saleResult
       let saleData
 
-
       await session.withTransaction(async () => {
-        // Generate unique sale ID
         const saleId = generateSaleId()
         console.log('POST: Generated sale ID:', saleId)
 
-
-        // 🔥 NEW: Fetch buying prices for all products first
         const itemsWithBuyingPrice = []
         
         for (let i = 0; i < body.items.length; i++) {
           const item = body.items[i]
           
-          // Fetch product to get buying price
           const product = await db
             .collection('products')
             .findOne({ _id: new ObjectId(item.productId) }, { session })
 
-
           if (!product) {
             throw new Error(`Product not found: ${item.productName} (ID: ${item.productId})`)
           }
-
 
           const stockKey = `${item.branch}_stock`
           const currentStock = product.stock?.[stockKey] || 0
@@ -477,39 +402,33 @@ export async function POST(req) {
             )
           }
 
-
-          // 🔥 NEW: Get buying price from product
           const buyingPrice = parseFloat(product.buyingPrice) || 0
           const quantity = parseInt(item.quantity)
           const costOfGoods = buyingPrice * quantity
           const itemProfit = parseFloat(item.totalPrice) - costOfGoods
-
 
           itemsWithBuyingPrice.push({
             productId: item.productId,
             productName: sanitizeInput(item.productName).trim(),
             branch: sanitizeInput(item.branch).toLowerCase(),
             quantity: quantity,
-            unitPrice: parseFloat(item.unitPrice),           // Selling price
-            buyingPrice: buyingPrice,                        // 🔥 NEW: Buying price at time of sale
-            totalPrice: parseFloat(item.totalPrice),         // Total revenue
-            costOfGoods: costOfGoods,                        // 🔥 NEW: Total cost
-            profit: itemProfit,                              // 🔥 NEW: Item profit
+            unitPrice: parseFloat(item.unitPrice),
+            buyingPrice: buyingPrice,
+            totalPrice: parseFloat(item.totalPrice),
+            costOfGoods: costOfGoods,
+            profit: itemProfit,
           })
-
 
           console.log(`💰 Item ${i + 1}: ${item.productName} - Buying: ৳${buyingPrice}, Selling: ৳${item.unitPrice}, Profit: ৳${itemProfit}`)
         }
 
-
-        // Create sale record with sanitized data and buying prices
         saleData = {
           saleId,
           customer: {
             name: customerName.trim(),
             phone: customerPhone.trim(),
           },
-          items: itemsWithBuyingPrice,  // 🔥 UPDATED: Now includes buying price
+          items: itemsWithBuyingPrice,
           payment: {
             methods: body.payment.methods.map(method => ({
               id: sanitizeInput(method.id),
@@ -519,15 +438,15 @@ export async function POST(req) {
             })),
             totalAmount: totalAmount,
             totalPaid: totalPaid,
-            change: totalPaid - adjustedAmount, // 🔥 UPDATED: Change is based on adjusted amount
+            change: totalPaid - adjustedAmount,
           },
           totalAmount: totalAmount,
-          discount: discount, // 🔥 NEW: Discount field
-          adjustedAmount: adjustedAmount, // 🔥 NEW: Adjusted amount field
+          discount: discount,
+          adjustedAmount: adjustedAmount,
           paymentType: paymentType,
           status: status,
-          cashier: userInfo.name || sanitizeInput(body.cashier || 'Unknown Cashier'), // 🔥 NEW: Use logged-in user name
-          cashierRole: userInfo.role, // 🔥 NEW: Store cashier role
+          cashier: userInfo.name || sanitizeInput(body.cashier || 'Unknown Cashier'),
+          cashierRole: userInfo.role,
           createdAt: new Date(),
           updatedAt: new Date(),
           createdBy: userInfo.userId,
@@ -535,19 +454,14 @@ export async function POST(req) {
           timestamp: new Date(),
         }
 
-
         console.log('POST: Inserting sale record...')
         saleResult = await db.collection('sales').insertOne(saleData, { session })
 
-
-        // Update product stock for each item
         console.log('POST: Updating product stock...')
         for (let i = 0; i < itemsWithBuyingPrice.length; i++) {
           const item = itemsWithBuyingPrice[i]
           console.log(`POST: Processing item ${i + 1}/${itemsWithBuyingPrice.length} - ${item.productName}`)
 
-
-          // Update stock
           const updateResult = await db.collection('products').updateOne(
             { _id: new ObjectId(item.productId) },
             {
@@ -560,19 +474,15 @@ export async function POST(req) {
             { session }
           )
 
-
           if (updateResult.matchedCount === 0) {
             throw new Error(`Failed to update stock for product: ${item.productName}`)
           }
 
-
           console.log(`POST: Updated stock for ${item.productName} - reduced by ${item.quantity}`)
         }
 
-
         console.log('POST: Transaction completed successfully ✓')
       })
-
 
       console.log('POST: Sale processed successfully ✓')
       return NextResponse.json(
@@ -588,12 +498,10 @@ export async function POST(req) {
         }
       )
 
-
     } finally {
       await session.endSession()
       console.log('POST: Database session ended')
     }
-
 
   } catch (error) {
     console.error('POST: Critical error in sale processing:', error)
@@ -601,18 +509,14 @@ export async function POST(req) {
   }
 }
 
-
-// 🔥 FIXED: GET method with END OF DAY date range fix
+// 🔥 FIXED: GET method with END OF DAY date range fix and MOBILE NUMBER SEARCH
 export async function GET(req) {
   const ip = getUserIP(req)
   logRequest(req, 'GET')
 
-
   try {
-    // 🔥 CRITICAL: Require JWT authentication for sales data access
     const userInfo = await getUserInfo(req)
     console.log('GET: User info obtained:', userInfo)
-
 
     if (!userInfo.isAuthenticated) {
       return NextResponse.json(
@@ -621,8 +525,6 @@ export async function GET(req) {
       )
     }
 
-
-    // 🔥 ROLE-BASED ACCESS: Admin, moderator, and POS can view sales data
     if (!['admin', 'moderator', 'pos'].includes(userInfo.role)) {
       return NextResponse.json(
         { error: 'Access denied. Only admins, moderators, and POS users can view sales data.' },
@@ -630,8 +532,6 @@ export async function GET(req) {
       )
     }
 
-
-    // Apply rate limiting based on user role
     const rateLimit = RATE_LIMITS[userInfo.role?.toUpperCase()] || RATE_LIMITS.PUBLIC
     if (typeof checkRateLimit === 'function' && userInfo.role !== 'admin') {
       try {
@@ -641,18 +541,13 @@ export async function GET(req) {
       }
     }
 
-
     console.log('GET: Fetching sales...')
     const { searchParams } = new URL(req.url)
 
-
-    // 🔐 SECURITY: Sanitize and validate parameters
     const limit = Math.min(Math.max(parseInt(searchParams.get('limit')) || 50, 1), 1000)
     const page = Math.max(parseInt(searchParams.get('page')) || 1, 1)
     const skip = (page - 1) * limit
 
-
-    // Optional filters with sanitization
     const startDateParam = searchParams.get('startDate')
     const endDateParam = searchParams.get('endDate')
     const paymentType = sanitizeInput(searchParams.get('paymentType'))
@@ -662,52 +557,37 @@ export async function GET(req) {
     const saleId = sanitizeInput(searchParams.get('saleId'))
     const branchParam = sanitizeInput(searchParams.get('branch'))
     const searchParam = sanitizeInput(searchParams.get('search'))
+    const phoneParam = sanitizeInput(searchParams.get('phone'))
     
-    // 🔥 NEW: Mobile banking, card, and bank payment method filters
-    const mobileBankingMethod = sanitizeInput(searchParams.get('mobileBankingMethod')) // bkash, nagad, rocket, all
-    const cardMethod = sanitizeInput(searchParams.get('cardMethod')) // credit_card, debit_card, american_express, all
-    const bankMethod = sanitizeInput(searchParams.get('bankMethod')) // bank, bank_transfer, all
-
+    const mobileBankingMethod = sanitizeInput(searchParams.get('mobileBankingMethod'))
+    const bankMethod = sanitizeInput(searchParams.get('bankMethod'))
 
     console.log('GET: Query parameters:', { 
-      limit, page, startDateParam, endDateParam, paymentType, status, cashier, branchParam, searchParam,
-      mobileBankingMethod, cardMethod, bankMethod,
+      limit, page, startDateParam, endDateParam, paymentType, status, cashier, branchParam, searchParam, phoneParam,
+      mobileBankingMethod, bankMethod,
       userRole: userInfo.role, userBranch: userInfo.branch 
     })
-
 
     const client = await clientPromise
     const db = client.db('VWV')
 
-
-    // 🔥 CRITICAL FIX: Build query using $and array to avoid conflicts
     let andConditions = []
 
-
-    // 🔥 CRITICAL FIX: Date range validation with END OF DAY support
     try {
       if (startDateParam || endDateParam) {
         let startDate = null
         let endDate = null
 
-
-        // Validate start date
         if (startDateParam) {
           startDate = validateDate(startDateParam, 'start date')
-          // 🔥 FIX: Set to START of day (00:00:00.000)
           startDate.setHours(0, 0, 0, 0)
         }
 
-
-        // Validate end date
         if (endDateParam) {
           endDate = validateDate(endDateParam, 'end date')
-          // 🔥 CRITICAL FIX: Set to END of day (23:59:59.999)
           endDate.setHours(23, 59, 59, 999)
         }
 
-
-        // Set default dates if only one is provided
         if (!startDate && endDate) {
           startDate = new Date('1900-01-01')
           startDate.setHours(0, 0, 0, 0)
@@ -717,8 +597,6 @@ export async function GET(req) {
           endDate.setHours(23, 59, 59, 999)
         }
 
-
-        // Validate date range
         if (startDate && endDate && startDate > endDate) {
           return NextResponse.json(
             { error: 'Start date cannot be after end date' },
@@ -726,8 +604,6 @@ export async function GET(req) {
           )
         }
 
-
-        // Apply date filter
         if (startDate && endDate) {
           andConditions.push({ createdAt: { $gte: startDate, $lte: endDate } })
           console.log('GET: Applied date filter:', { start: startDate.toISOString(), end: endDate.toISOString() })
@@ -741,16 +617,12 @@ export async function GET(req) {
       )
     }
 
-
-    // 🔥 FIXED: Mobile banking method filter
     if (mobileBankingMethod) {
-      const validMobileBankingMethods = ['bkash', 'nagad', 'rocket']
+      const validMobileBankingMethods = ['bkash']
       if (mobileBankingMethod === 'all') {
-        // Show all mobile banking transactions
         andConditions.push({ paymentType: 'mobile_banking' })
         console.log('GET: Applied filter for all mobile banking transactions')
       } else if (validMobileBankingMethods.includes(mobileBankingMethod)) {
-        // Filter by specific mobile banking method in payment.methods array
         andConditions.push({ paymentType: 'mobile_banking' })
         andConditions.push({
           'payment.methods': {
@@ -764,35 +636,9 @@ export async function GET(req) {
       }
     }
 
-
-    // 🔥 FIXED: Card method filter
-    if (cardMethod) {
-      const validCardMethods = ['credit_card', 'debit_card', 'american_express']
-      if (cardMethod === 'all') {
-        // Show all card transactions
-        andConditions.push({ paymentType: 'card' })
-        console.log('GET: Applied filter for all card transactions')
-      } else if (validCardMethods.includes(cardMethod)) {
-        // Filter by specific card method in payment.methods array
-        andConditions.push({ paymentType: 'card' })
-        andConditions.push({
-          'payment.methods': {
-            $elemMatch: {
-              id: cardMethod,
-              type: 'card'
-            }
-          }
-        })
-        console.log('GET: Applied card filter:', cardMethod)
-      }
-    }
-
-
-    // 🔥 NEW: Bank transfer method filter
     if (bankMethod) {
       const validBankMethods = ['bank', 'bank_transfer']
       if (bankMethod === 'all' || validBankMethods.includes(bankMethod)) {
-        // Show all bank transfer transactions
         andConditions.push({ paymentType: 'bank_transfer' })
         andConditions.push({
           'payment.methods': {
@@ -806,38 +652,31 @@ export async function GET(req) {
       }
     }
 
-
-    // Payment type filter (if no specific method filter applied)
-    if (paymentType && !mobileBankingMethod && !cardMethod && !bankMethod && ['cash', 'mobile_banking', 'card', 'bank_transfer', 'mixed'].includes(paymentType)) {
+    if (paymentType && !mobileBankingMethod && !bankMethod && ['cash', 'mobile_banking', 'bank_transfer', 'mixed'].includes(paymentType)) {
       andConditions.push({ paymentType: paymentType })
     }
 
-
-    // Status filter
     if (status && ['completed', 'pending', 'cancelled', 'refunded'].includes(status)) {
       andConditions.push({ status: status })
     }
 
-
-    // Cashier filter
     if (cashier && cashier.length <= 50) {
       andConditions.push({ cashier: { $regex: cashier, $options: 'i' } })
     }
 
-
-    // Customer name filter
     if (customerName && customerName.length <= 50) {
       andConditions.push({ 'customer.name': { $regex: customerName, $options: 'i' } })
     }
 
-
-    // Sale ID filter
     if (saleId && saleId.length <= 50) {
       andConditions.push({ saleId: { $regex: saleId, $options: 'i' } })
     }
 
+    if (phoneParam && phoneParam.length <= 20) {
+      andConditions.push({ 'customer.phone': { $regex: phoneParam, $options: 'i' } })
+      console.log('GET: Applied phone filter:', phoneParam)
+    }
 
-    // 🔥 ENHANCED: Global search functionality
     if (searchParam && searchParam.length <= MAX_SEARCH_LENGTH) {
       const searchRegex = { $regex: searchParam, $options: 'i' }
       andConditions.push({
@@ -851,15 +690,11 @@ export async function GET(req) {
       })
     }
 
-
-    // 🔥 FIXED: Branch filtering - add to $and array
     if (branchParam && branchParam.length <= 20) {
       if (userInfo.role === 'admin') {
-        // Admin can filter by any branch they request
         andConditions.push({ 'items.branch': branchParam })
         console.log('GET: Admin filtering by requested branch:', branchParam)
       } else if (['moderator', 'pos'].includes(userInfo.role)) {
-        // Moderator/POS can only filter by their own branch or requested branch if it matches
         if (userInfo.branch && branchParam.toLowerCase() === userInfo.branch.toLowerCase()) {
           andConditions.push({ 'items.branch': userInfo.branch })
           console.log('GET: User filtering by their branch:', userInfo.branch)
@@ -871,31 +706,21 @@ export async function GET(req) {
         }
       }
     } else {
-      // No branch param provided - apply default role-based filtering
       if (['moderator', 'pos'].includes(userInfo.role) && userInfo.branch) {
         andConditions.push({ 'items.branch': userInfo.branch })
         console.log('GET: User default filtering by branch:', userInfo.branch)
       }
-      // Admin with no branch param sees all data (no additional filter)
     }
 
-
-    // 🔥 CRITICAL FIX: Build final filter using $and
     const filter = andConditions.length > 0 ? { $and: andConditions } : {}
-
 
     console.log('GET: Built query filter:', JSON.stringify(filter, null, 2))
 
-
-    // Get total count for pagination
     const totalCount = await db.collection('sales').countDocuments(filter)
     const totalPages = Math.ceil(totalCount / limit)
 
-
     console.log('GET: Total sales found:', totalCount)
 
-
-    // 🔥 ROLE-BASED PROJECTION: Moderators/POS see limited data
     let projection = {}
     if (['moderator', 'pos'].includes(userInfo.role)) {
       projection = {
@@ -904,8 +729,8 @@ export async function GET(req) {
         'customer.phone': 1,
         items: 1,
         totalAmount: 1,
-        discount: 1, // 🔥 NEW
-        adjustedAmount: 1, // 🔥 NEW
+        discount: 1,
+        adjustedAmount: 1,
         paymentType: 1,
         'payment.totalAmount': 1,
         'payment.totalPaid': 1,
@@ -914,14 +739,13 @@ export async function GET(req) {
         status: 1,
         createdAt: 1,
         cashier: 1,
-        cashierRole: 1, // 🔥 NEW
+        cashierRole: 1,
         timestamp: 1
       }
       console.log('GET: Using limited projection for moderator/POS')
     } else {
       console.log('GET: Using admin projection (all fields)')
     }
-
 
     const sales = await db
       .collection('sales')
@@ -931,20 +755,16 @@ export async function GET(req) {
       .limit(limit)
       .toArray()
 
-
-    // 🔥 ENHANCED: Filter branch data for moderators/POS to ensure they only see their branch items
     const filteredSales = ['moderator', 'pos'].includes(userInfo.role) && userInfo.branch 
       ? sales.map(sale => ({
           ...sale,
           items: sale.items?.filter(item => 
             item.branch && item.branch.toLowerCase() === userInfo.branch.toLowerCase()
           ) || []
-        })).filter(sale => sale.items.length > 0) // Remove sales with no items after filtering
+        })).filter(sale => sale.items.length > 0)
       : sales
 
-
     console.log('GET: Sales fetched successfully, count:', filteredSales.length)
-
 
     return NextResponse.json(
       {
@@ -966,8 +786,8 @@ export async function GET(req) {
             dateRange: startDateParam && endDateParam ? `${startDateParam} to ${endDateParam}` : 'all',
             status: status || 'all',
             mobileBankingMethod: mobileBankingMethod || 'none',
-            cardMethod: cardMethod || 'none',
             bankMethod: bankMethod || 'none',
+            phone: phoneParam || 'none',
             search: searchParam || 'none'
           }
         }
@@ -980,22 +800,18 @@ export async function GET(req) {
       }
     )
 
-
   } catch (error) {
     console.error('GET: Critical error:', error)
     return handleApiError(error, 'GET /api/sales')
   }
 }
 
-
 // 🔥 ENHANCED: PUT method with strict admin-only access for updates
 export async function PUT(req) {
   const ip = getUserIP(req)
   logRequest(req, 'PUT')
 
-
   try {
-    // 🔥 CRITICAL: Require JWT authentication and admin role for updates
     const userInfo = await getUserInfo(req)
     console.log('PUT: User info obtained:', userInfo)
     
@@ -1006,8 +822,6 @@ export async function PUT(req) {
       )
     }
 
-
-    // 🔥 ADMIN-ONLY: Only admins can update sales
     if (userInfo.role !== 'admin') {
       return NextResponse.json(
         { error: 'Access denied. Only admins can update sales.' },
@@ -1015,12 +829,9 @@ export async function PUT(req) {
       )
     }
 
-
     console.log('PUT: Reading request body...')
     const body = await req.json()
 
-
-    // Validate request body size
     const bodySize = JSON.stringify(body).length
     if (bodySize > MAX_REQUEST_BODY_SIZE) {
       return NextResponse.json(
@@ -1029,9 +840,7 @@ export async function PUT(req) {
       )
     }
 
-
     const { saleId, status } = body
-
 
     if (!saleId || !status) {
       return NextResponse.json(
@@ -1040,8 +849,6 @@ export async function PUT(req) {
       )
     }
 
-
-    // Validate status
     if (!['completed', 'pending', 'cancelled', 'refunded'].includes(status)) {
       return NextResponse.json(
         { error: 'Invalid status value' },
@@ -1049,11 +856,9 @@ export async function PUT(req) {
       )
     }
 
-
     console.log('PUT: Updating sale status...')
     const client = await clientPromise
     const db = client.db('VWV')
-
 
     const updateResult = await db.collection('sales').updateOne(
       { saleId: sanitizeInput(saleId) },
@@ -1067,14 +872,12 @@ export async function PUT(req) {
       }
     )
 
-
     if (updateResult.matchedCount === 0) {
       return NextResponse.json(
         { error: 'Sale not found' },
         { status: 404 }
       )
     }
-
 
     console.log('PUT: Sale status updated successfully ✓')
     return NextResponse.json(
@@ -1089,21 +892,17 @@ export async function PUT(req) {
       }
     )
 
-
   } catch (error) {
     return handleApiError(error, 'PUT /api/sales')
   }
 }
-
 
 // 🔥 ENHANCED: DELETE method with strict admin-only access for sales deletion
 export async function DELETE(req) {
   const ip = getUserIP(req)
   logRequest(req, 'DELETE')
 
-
   try {
-    // 🔥 CRITICAL: Require JWT authentication and admin role for deletion
     const userInfo = await getUserInfo(req)
     console.log('DELETE: User info obtained:', userInfo)
     
@@ -1114,8 +913,6 @@ export async function DELETE(req) {
       )
     }
 
-
-    // 🔥 ADMIN-ONLY: Only admins can delete sales
     if (userInfo.role !== 'admin') {
       return NextResponse.json(
         { error: 'Access denied. Only admins can delete sales.' },
@@ -1123,10 +920,8 @@ export async function DELETE(req) {
       )
     }
 
-
     const { searchParams } = new URL(req.url)
     const saleId = sanitizeInput(searchParams.get('saleId'))
-
 
     if (!saleId) {
       return NextResponse.json(
@@ -1135,13 +930,10 @@ export async function DELETE(req) {
       )
     }
 
-
     console.log('DELETE: Deleting sale:', saleId)
     const client = await clientPromise
     const db = client.db('VWV')
 
-
-    // Check if sale exists before deletion
     const existingSale = await db.collection('sales').findOne({ saleId: saleId })
     if (!existingSale) {
       return NextResponse.json(
@@ -1150,10 +942,7 @@ export async function DELETE(req) {
       )
     }
 
-
-    // Delete the sale
     const deleteResult = await db.collection('sales').deleteOne({ saleId: saleId })
-
 
     if (deleteResult.deletedCount === 0) {
       return NextResponse.json(
@@ -1161,7 +950,6 @@ export async function DELETE(req) {
         { status: 500 }
       )
     }
-
 
     console.log('DELETE: Sale deleted successfully ✓')
     return NextResponse.json(
@@ -1176,7 +964,6 @@ export async function DELETE(req) {
         headers: { 'Content-Type': 'application/json' },
       }
     )
-
 
   } catch (error) {
     return handleApiError(error, 'DELETE /api/sales')

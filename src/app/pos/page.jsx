@@ -28,85 +28,79 @@ export default function POSPage() {
     reset,
   } = useForm()
 
-    // Combined authentication and role check
-    useEffect(() => {
-      const fetchUserDetails = async () => {
-        // Check if user is logged in
-        if (!user?.email) {
+  // Combined authentication and role check
+  useEffect(() => {
+    const fetchUserDetails = async () => {
+      if (!user?.email) {
+        setLoading(false)
+        return
+      }
+
+      try {
+        const token = localStorage.getItem('auth-token')
+        
+        if (!token) {
           setLoading(false)
           return
         }
 
-        try {
-          const token = localStorage.getItem('auth-token')
-          
-          // If no token, don't redirect yet - wait for Firebase auth
-          if (!token) {
-            setLoading(false)
-            return
+        const response = await fetch(`/api/user?email=${encodeURIComponent(user.email)}`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
           }
+        })
 
-          const response = await fetch(`/api/user?email=${encodeURIComponent(user.email)}`, {
-            headers: {
-              'Authorization': `Bearer ${token}`
-            }
-          })
-
-          if (response.status === 401) {
-            console.log('Token expired, redirecting to login')
-            localStorage.removeItem('auth-token')
-            localStorage.removeItem('user-info')
-            router.push('/')
-            return
-          }
-
-          if (response.ok) {
-            const data = await response.json()
-            if (data.user) {
-              const userDetails = {
-                ...data.user,
-                branch: data.user.branch?.toLowerCase()
-              }
-              
-              // ✅ CHECK: Verify role BEFORE setting state
-              if (userDetails.role !== 'pos' && userDetails.role !== 'admin') {
-                Swal.fire({
-                  icon: 'error',
-                  title: 'Access Denied',
-                  text: 'POS role required',
-                  confirmButtonColor: '#7c3aed',
-                }).then(() => {
-                  router.push('/')
-                })
-                return
-              }
-              
-              setUserInfo(userDetails)
-              localStorage.setItem('user-info', JSON.stringify(userDetails))
-            }
-          } else {
-            Swal.fire({
-              icon: 'error',
-              title: 'Access Denied',
-              text: 'Could not load user details',
-              confirmButtonColor: '#7c3aed',
-            }).then(() => {
-              router.push('/')
-            })
-          }
-        } catch (error) {
-          console.error('Error fetching user details:', error)
-        } finally {
-          setLoading(false)
+        if (response.status === 401) {
+          localStorage.removeItem('auth-token')
+          localStorage.removeItem('user-info')
+          router.push('/')
+          return
         }
+
+        if (response.ok) {
+          const data = await response.json()
+          if (data.user) {
+            const userDetails = {
+              ...data.user,
+              branch: data.user.branch?.toLowerCase()
+            }
+            
+            if (userDetails.role !== 'pos' && userDetails.role !== 'admin') {
+              Swal.fire({
+                icon: 'error',
+                title: 'Access Denied',
+                text: 'POS role required',
+                confirmButtonColor: '#7c3aed',
+              }).then(() => {
+                router.push('/')
+              })
+              return
+            }
+            
+            setUserInfo(userDetails)
+            localStorage.setItem('user-info', JSON.stringify(userDetails))
+          }
+        } else {
+          Swal.fire({
+            icon: 'error',
+            title: 'Access Denied',
+            text: 'Could not load user details',
+            confirmButtonColor: '#7c3aed',
+          }).then(() => {
+            router.push('/')
+          })
+        }
+      } catch (error) {
+        // Silent error handling
+      } finally {
+        setLoading(false)
       }
+    }
 
-      fetchUserDetails()
-    }, [user, router]) // Only user and router in dependencies
+    fetchUserDetails()
+  }, [user, router])
 
-
-
-  // 🔥 UPDATED: Search products by branch and filter out 0 stock
+  // Search products by branch and filter out 0 stock
   const handleSearch = async (query) => {
     if (!query.trim() || !userInfo?.branch) {
       setProducts([])
@@ -127,21 +121,17 @@ export default function POSPage() {
       if (response.ok) {
         const data = await response.json()
         
-        // 🔥 FILTER: Only show products with stock > 0 for current branch
         const stockKey = `${userInfo.branch}_stock`
         const productsWithStock = (data.products || []).filter(product => {
           const stock = product.stock?.[stockKey] || 0
           return stock > 0
         })
         
-       
         setProducts(productsWithStock)
       } else {
-       
         setProducts([])
       }
     } catch (error) {
-      
       setProducts([])
     }
   }
@@ -235,18 +225,18 @@ export default function POSPage() {
   }
 
   const calculateVAT = () => {
-    return calculateSubtotal() * 0.15 // 15% VAT (Adjusted - not added to total)
+    return calculateSubtotal() * 0.15
   }
 
   const calculateGrandTotal = () => {
-    return calculateSubtotal() // VAT is adjusted, not added
+    return calculateSubtotal()
   }
 
   const calculateAdjustedAmount = () => {
     return calculateGrandTotal() - discount
   }
 
-  // Complete sale - FULL BACKEND INTEGRATION
+  // Complete sale
   const onSubmit = async (data) => {
     if (cartItems.length === 0) {
       Swal.fire({
@@ -274,8 +264,6 @@ export default function POSPage() {
       const totalAmount = calculateGrandTotal()
       const adjustedAmount = calculateAdjustedAmount()
 
-
-
       const saleData = {
         phone: data.phone,
         items: cartItems.map(item => ({
@@ -295,11 +283,9 @@ export default function POSPage() {
           methods: [{
             id: paymentMethod,
             name: paymentMethod.charAt(0).toUpperCase() + paymentMethod.slice(1),
-            // ✅ FIXED: Add bank as separate type
             type: paymentMethod === 'cash' ? 'cash' : 
-                  ['bkash', 'nagad', 'rocket'].includes(paymentMethod) ? 'mobile_banking' : 
-                  paymentMethod === 'bank' ? 'bank_transfer' :  // ← ADD THIS LINE
-                  'card',
+                  paymentMethod === 'bkash' ? 'mobile_banking' : 
+                  paymentMethod === 'bank' ? 'bank_transfer' : 'cash',
             amount: adjustedAmount
           }],
           totalAmount: totalAmount,
@@ -310,17 +296,12 @@ export default function POSPage() {
           name: 'Walk-in Customer',
           phone: data.phone
         },
-        // ✅ FIXED: Add bank as separate paymentType
         paymentType: paymentMethod === 'cash' ? 'cash' : 
-                    ['bkash', 'nagad', 'rocket'].includes(paymentMethod) ? 'mobile_banking' : 
-                    paymentMethod === 'bank' ? 'bank_transfer' :  // ← ADD THIS LINE
-                    'card',
+                    paymentMethod === 'bkash' ? 'mobile_banking' : 
+                    paymentMethod === 'bank' ? 'bank_transfer' : 'cash',
         status: 'completed',
         cashier: userInfo.name || 'POS User'
       }
-
-
-      
 
       const token = localStorage.getItem('auth-token')
       const response = await fetch('/api/sales', {
@@ -333,7 +314,6 @@ export default function POSPage() {
       })
 
       if (response.status === 401) {
-        
         localStorage.removeItem('auth-token')
         localStorage.removeItem('user-info')
         router.push('/')
@@ -342,7 +322,6 @@ export default function POSPage() {
 
       if (response.ok) {
         const result = await response.json()
-        
 
         Swal.fire({
           icon: 'success',
@@ -359,7 +338,6 @@ export default function POSPage() {
           confirmButtonColor: '#7c3aed',
         })
 
-        // Clear cart and form
         setCartItems([])
         setDiscount(0)
         setPaymentMethod('cash')
@@ -369,7 +347,6 @@ export default function POSPage() {
         throw new Error(errorData.error || 'Failed to process sale')
       }
     } catch (error) {
-      
       Swal.fire({
         icon: 'error',
         title: 'Sale Failed',
@@ -481,7 +458,7 @@ export default function POSPage() {
                 />
               </div>
 
-              {/* 🔥 UPDATED: Search Results Dropdown - Removed stock display */}
+              {/* Search Results Dropdown */}
               {products.length > 0 && (
                 <div className="mt-2 max-h-96 overflow-y-auto border border-gray-200 rounded-lg">
                   {products.map((product) => (
@@ -659,12 +636,7 @@ export default function POSPage() {
                 >
                   <option value="cash">Cash</option>
                   <option value="bkash">bKash</option>
-                  <option value="nagad">Nagad</option>
-                  <option value="rocket">Rocket</option>
                   <option value="bank">Bank</option>
-                  <option value="credit_card">Credit Card</option>
-                  <option value="debit_card">Debit Card</option>
-                  <option value="american_express">American Express</option>
                 </select>
               </div>
 
