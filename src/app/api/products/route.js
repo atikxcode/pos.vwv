@@ -344,7 +344,7 @@ export async function GET(req) {
     const search = sanitizeSearchInput(searchParams.get('search'))
     const status = sanitizeInput(searchParams.get('status')) || 'active'
     const branch = sanitizeInput(searchParams.get('branch'))
-    const limit = Math.min(parseInt(searchParams.get('limit')) || 50, 100)
+    const limit = Math.min(parseInt(searchParams.get('limit')) || 50, 10000)
     const page = Math.max(parseInt(searchParams.get('page')) || 1, 1)
     const inStock = searchParams.get('inStock')
     const getCategoriesOnly = searchParams.get('getCategoriesOnly') === 'true' || searchParams.get('getCategories') === 'true'
