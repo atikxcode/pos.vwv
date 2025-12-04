@@ -8,6 +8,7 @@ import { AuthContext } from '../../Provider/AuthProvider'
 import { useRouter } from 'next/navigation'
 import Swal from 'sweetalert2'
 import { Store, ShieldCheck } from 'lucide-react'
+import { startTokenRefresh, stopTokenRefresh } from '../../utils/tokenRefresh'
 
 export default function POSLoginPage() {
   const { user, signIn, handleGoogleSignIn, handleAppleSignIn, logOut } = useContext(AuthContext)
@@ -29,12 +30,15 @@ export default function POSLoginPage() {
     localStorage.removeItem('auth-token')
     localStorage.removeItem('user-info')
     sessionStorage.clear()
-    
+
+    // 🔧 Stop token refresh on login page
+    stopTokenRefresh()
+
     // Sign out from Firebase
     if (user) {
       logOut().catch(err => console.log('Logout error:', err))
     }
-    
+
     console.log('✅ Auth cleared - login page ready')
   }, []) // Empty dependency array - runs once on mount
 
@@ -55,15 +59,15 @@ export default function POSLoginPage() {
   // Get user role from backend with retry logic
   const getUserFromBackend = async (email, retryCount = 0) => {
     const MAX_RETRIES = 3
-    
+
     try {
       const token = localStorage.getItem('auth-token')
       console.log(`🔍 Fetching user from backend (attempt ${retryCount + 1}):`, { email, hasToken: !!token })
-      
+
       if (!token) {
         throw new Error('No authentication token found')
       }
-      
+
       const response = await fetch(`/api/user?email=${encodeURIComponent(email)}`, {
         method: 'GET',
         headers: {
@@ -75,40 +79,44 @@ export default function POSLoginPage() {
       console.log('🔍 Backend response status:', response.status)
 
       const data = await response.json()
-      console.log('🔍 Backend response:', { 
-        exists: data.exists, 
-        role: data.user?.role, 
-        branch: data.user?.branch 
+      console.log('🔍 Backend response:', {
+        exists: data.exists,
+        role: data.user?.role,
+        branch: data.user?.branch
       })
-      
+
       if (!response.ok) {
         console.error('❌ Backend error:', data.error)
-        
+
         if (retryCount < MAX_RETRIES && (response.status === 401 || response.status === 500)) {
           console.log(`🔄 Retrying... (${retryCount + 1}/${MAX_RETRIES})`)
           await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)))
           return getUserFromBackend(email, retryCount + 1)
         }
-        
+
         throw new Error(data.error || 'Failed to fetch user data')
       }
-      
+
       if (data.exists && data.user) {
         localStorage.setItem('user-info', JSON.stringify(data.user))
         console.log('✅ User info stored in localStorage')
+
+        // 🔧 Start automatic token refresh for 24-hour session
+        startTokenRefresh()
+
         return data.user
       }
-      
+
       throw new Error('User not found in database')
     } catch (error) {
       console.error('❌ Error fetching user from backend:', error)
-      
+
       if (retryCount < MAX_RETRIES && error.message.includes('fetch')) {
         console.log(`🔄 Retrying due to network error... (${retryCount + 1}/${MAX_RETRIES})`)
         await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)))
         return getUserFromBackend(email, retryCount + 1)
       }
-      
+
       throw error
     }
   }
@@ -117,7 +125,7 @@ export default function POSLoginPage() {
   const validatePOSAccess = async (firebaseUser) => {
     try {
       console.log('🔍 Starting POS access validation for:', firebaseUser.email)
-      
+
       await storeFirebaseToken(firebaseUser)
       await new Promise(resolve => setTimeout(resolve, 200))
 
@@ -125,14 +133,14 @@ export default function POSLoginPage() {
 
       if (dbUser.role !== 'pos' && dbUser.role !== 'admin') {
         console.log('❌ Access denied: Role is', dbUser.role)
-        
+
         await Swal.fire({
           icon: 'error',
           title: 'Access Denied',
           text: `You do not have permission to access the POS system. Your role is: ${dbUser.role}`,
           confirmButtonColor: '#7c3aed',
         })
-        
+
         localStorage.removeItem('auth-token')
         localStorage.removeItem('user-info')
         return null
@@ -140,22 +148,22 @@ export default function POSLoginPage() {
 
       if (!dbUser.branch) {
         console.log('❌ No branch assigned')
-        
+
         await Swal.fire({
           icon: 'warning',
           title: 'No Branch Assigned',
           text: 'Your account has not been assigned to a branch yet. Please contact an administrator.',
           confirmButtonColor: '#7c3aed',
         })
-        
+
         localStorage.removeItem('auth-token')
         localStorage.removeItem('user-info')
         return null
       }
 
-      console.log('✅ POS access validated successfully:', { 
-        role: dbUser.role, 
-        branch: dbUser.branch 
+      console.log('✅ POS access validated successfully:', {
+        role: dbUser.role,
+        branch: dbUser.branch
       })
       return dbUser
     } catch (error) {
@@ -172,14 +180,14 @@ export default function POSLoginPage() {
     try {
       console.log('🔍 Starting Google Sign-In...')
       const result = await handleGoogleSignIn()
-      
+
       if (result.user) {
         console.log('✅ Google Sign-In successful:', result.user.email)
         const dbUser = await validatePOSAccess(result.user)
-        
+
         if (dbUser) {
           console.log('✅ Redirecting to POS...')
-          
+
           Swal.fire({
             toast: true,
             position: 'top-end',
@@ -190,14 +198,14 @@ export default function POSLoginPage() {
             timer: 2000,
             timerProgressBar: true,
           })
-          
+
           await new Promise(resolve => setTimeout(resolve, 100))
           router.push('/pos')
         }
       }
     } catch (error) {
       console.error('❌ Google Sign-In Error:', error)
-      
+
       if (!error.message.includes('permission') && !error.message.includes('branch')) {
         Swal.fire({
           icon: 'error',
@@ -217,14 +225,14 @@ export default function POSLoginPage() {
     try {
       console.log('🔍 Starting Apple Sign-In...')
       const result = await handleAppleSignIn()
-      
+
       if (result.user) {
         console.log('✅ Apple Sign-In successful:', result.user.email)
         const dbUser = await validatePOSAccess(result.user)
-        
+
         if (dbUser) {
           console.log('✅ Redirecting to POS...')
-          
+
           Swal.fire({
             toast: true,
             position: 'top-end',
@@ -235,14 +243,14 @@ export default function POSLoginPage() {
             timer: 2000,
             timerProgressBar: true,
           })
-          
+
           await new Promise(resolve => setTimeout(resolve, 100))
           router.push('/pos')
         }
       }
     } catch (error) {
       console.error('❌ Apple Sign-In Error:', error)
-      
+
       if (!error.message.includes('permission') && !error.message.includes('branch')) {
         Swal.fire({
           icon: 'error',
@@ -262,7 +270,7 @@ export default function POSLoginPage() {
 
     try {
       console.log('🔍 Starting email/password login...')
-      
+
       const result = await signIn(data.email, data.password)
       console.log('✅ Firebase sign-in successful:', result.user.email)
 
@@ -282,7 +290,7 @@ export default function POSLoginPage() {
 
       if (dbUser) {
         console.log('✅ Redirecting to POS...')
-        
+
         Swal.fire({
           toast: true,
           position: 'top-end',
@@ -367,7 +375,7 @@ export default function POSLoginPage() {
               <input
                 type="email"
                 placeholder="Enter your email"
-                {...register('email', { 
+                {...register('email', {
                   required: 'Email is required',
                   pattern: {
                     value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
@@ -423,11 +431,10 @@ export default function POSLoginPage() {
             <button
               type="submit"
               disabled={!isValid || isLoading}
-              className={`w-full py-3 rounded-lg font-semibold transition-all flex items-center justify-center ${
-                isValid && !isLoading
-                  ? 'bg-purple-600 text-white hover:bg-purple-700 shadow-lg hover:shadow-xl'
-                  : 'bg-gray-200 text-gray-500 cursor-not-allowed'
-              }`}
+              className={`w-full py-3 rounded-lg font-semibold transition-all flex items-center justify-center ${isValid && !isLoading
+                ? 'bg-purple-600 text-white hover:bg-purple-700 shadow-lg hover:shadow-xl'
+                : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                }`}
             >
               {isLoading ? (
                 <div className="flex items-center">

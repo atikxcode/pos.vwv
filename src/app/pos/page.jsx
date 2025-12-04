@@ -7,11 +7,12 @@ import { AuthContext } from '../../../Provider/AuthProvider'
 import { useRouter } from 'next/navigation'
 import Swal from 'sweetalert2'
 import { Store, Search, Trash2, Plus, Minus, ShoppingCart, LogOut, CreditCard } from 'lucide-react'
+import { startTokenRefresh, stopTokenRefresh } from '../../../utils/tokenRefresh'
 
 export default function POSPage() {
   const { user, logOut } = useContext(AuthContext)
   const router = useRouter()
-  
+
   const [loading, setLoading] = useState(true)
   const [userInfo, setUserInfo] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
@@ -38,7 +39,7 @@ export default function POSPage() {
 
       try {
         const token = localStorage.getItem('auth-token')
-        
+
         if (!token) {
           setLoading(false)
           return
@@ -64,7 +65,7 @@ export default function POSPage() {
               ...data.user,
               branch: data.user.branch?.toLowerCase()
             }
-            
+
             if (userDetails.role !== 'pos' && userDetails.role !== 'admin') {
               Swal.fire({
                 icon: 'error',
@@ -76,9 +77,12 @@ export default function POSPage() {
               })
               return
             }
-            
+
             setUserInfo(userDetails)
             localStorage.setItem('user-info', JSON.stringify(userDetails))
+
+            // 🔧 Start automatic token refresh for 24-hour session
+            startTokenRefresh()
           }
         } else {
           Swal.fire({
@@ -110,23 +114,23 @@ export default function POSPage() {
     try {
       const token = localStorage.getItem('auth-token')
       const response = await fetch(
-        `/api/products?search=${encodeURIComponent(query)}&branch=${userInfo.branch}&status=active`, 
+        `/api/products?search=${encodeURIComponent(query)}&branch=${userInfo.branch}&status=active`,
         {
           headers: {
             'Authorization': `Bearer ${token}`
           }
         }
       )
-      
+
       if (response.ok) {
         const data = await response.json()
-        
+
         const stockKey = `${userInfo.branch}_stock`
         const productsWithStock = (data.products || []).filter(product => {
           const stock = product.stock?.[stockKey] || 0
           return stock > 0
         })
-        
+
         setProducts(productsWithStock)
       } else {
         setProducts([])
@@ -140,7 +144,7 @@ export default function POSPage() {
   const addToCart = (product) => {
     const stockKey = `${userInfo.branch}_stock`
     const availableStock = product.stock?.[stockKey] || 0
-    
+
     if (availableStock <= 0) {
       Swal.fire({
         icon: 'error',
@@ -153,7 +157,7 @@ export default function POSPage() {
     }
 
     const existingItem = cartItems.find(item => item._id === product._id)
-    
+
     if (existingItem) {
       const newQuantity = existingItem.quantity + 1
       if (newQuantity > availableStock) {
@@ -166,7 +170,7 @@ export default function POSPage() {
         })
         return
       }
-      
+
       setCartItems(cartItems.map(item =>
         item._id === product._id
           ? { ...item, quantity: newQuantity }
@@ -175,7 +179,7 @@ export default function POSPage() {
     } else {
       setCartItems([...cartItems, { ...product, quantity: 1 }])
     }
-    
+
     setSearchQuery('')
     setProducts([])
   }
@@ -191,7 +195,7 @@ export default function POSPage() {
     if (item) {
       const stockKey = `${userInfo.branch}_stock`
       const availableStock = item.stock?.[stockKey] || 0
-      
+
       if (newQuantity > availableStock) {
         Swal.fire({
           icon: 'warning',
@@ -203,7 +207,7 @@ export default function POSPage() {
         return
       }
     }
-    
+
     setCartItems(cartItems.map(item =>
       item._id === productId ? { ...item, quantity: newQuantity } : item
     ))
@@ -283,9 +287,9 @@ export default function POSPage() {
           methods: [{
             id: paymentMethod,
             name: paymentMethod.charAt(0).toUpperCase() + paymentMethod.slice(1),
-            type: paymentMethod === 'cash' ? 'cash' : 
-                  paymentMethod === 'bkash' ? 'mobile_banking' : 
-                  paymentMethod === 'bank' ? 'bank_transfer' : 'cash',
+            type: paymentMethod === 'cash' ? 'cash' :
+              paymentMethod === 'bkash' ? 'mobile_banking' :
+                paymentMethod === 'bank' ? 'bank_transfer' : 'cash',
             amount: adjustedAmount
           }],
           totalAmount: totalAmount,
@@ -296,9 +300,9 @@ export default function POSPage() {
           name: 'Walk-in Customer',
           phone: data.phone
         },
-        paymentType: paymentMethod === 'cash' ? 'cash' : 
-                    paymentMethod === 'bkash' ? 'mobile_banking' : 
-                    paymentMethod === 'bank' ? 'bank_transfer' : 'cash',
+        paymentType: paymentMethod === 'cash' ? 'cash' :
+          paymentMethod === 'bkash' ? 'mobile_banking' :
+            paymentMethod === 'bank' ? 'bank_transfer' : 'cash',
         status: 'completed',
         cashier: userInfo.name || 'POS User'
       }
@@ -361,7 +365,7 @@ export default function POSPage() {
   // Clear cart
   const clearCart = () => {
     if (cartItems.length === 0) return
-    
+
     Swal.fire({
       title: 'Clear Cart?',
       text: 'This will remove all items',
@@ -391,6 +395,9 @@ export default function POSPage() {
     })
 
     if (result.isConfirmed) {
+      // 🔧 Stop token refresh before logout
+      stopTokenRefresh()
+
       await logOut()
       localStorage.removeItem('auth-token')
       localStorage.removeItem('user-info')
@@ -595,7 +602,7 @@ export default function POSPage() {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">
-                    VAT (15%) 
+                    VAT (15%)
                     <span className="text-xs text-purple-600 ml-1">(Adjusted)</span>
                   </span>
                   <span className="font-semibold text-gray-500">৳{calculateVAT().toFixed(2)}</span>
