@@ -86,7 +86,11 @@ export async function GET(req) {
       })
 
 
-      return NextResponse.json({ exists: !!foundUser, user: foundUser })
+      return NextResponse.json({ exists: !!foundUser, user: foundUser }, {
+        headers: {
+          'Cache-Control': 'private, max-age=3600, stale-while-revalidate=60'
+        }
+      })
     }
 
 

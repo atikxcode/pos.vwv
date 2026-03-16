@@ -413,7 +413,7 @@ export async function GET(req) {
           {
             headers: { 
               'Content-Type': 'application/json',
-              'Cache-Control': 'public, max-age=300' // 5 minutes cache for categories
+              'Cache-Control': 'public, max-age=300, stale-while-revalidate=60'
             },
           }
         )
@@ -519,7 +519,7 @@ export async function GET(req) {
         {
           headers: { 
             'Content-Type': 'application/json',
-            'Cache-Control': userInfo.role === 'public' ? 'public, max-age=300' : 'private, max-age=60'
+            'Cache-Control': userInfo.role === 'public' ? 'public, max-age=300, stale-while-revalidate=60' : 'private, max-age=60, stale-while-revalidate=30'
           },
         }
       )
@@ -561,7 +561,7 @@ export async function GET(req) {
       return NextResponse.json(filteredProduct, {
         headers: { 
           'Content-Type': 'application/json',
-          'Cache-Control': userInfo.role === 'public' ? 'public, max-age=300' : 'private, max-age=60'
+          'Cache-Control': userInfo.role === 'public' ? 'public, max-age=300, stale-while-revalidate=60' : 'private, max-age=60, stale-while-revalidate=30'
         },
       })
     }
@@ -745,7 +745,7 @@ if (userInfo.role === 'moderator') {
       {
         headers: { 
           'Content-Type': 'application/json',
-          'Cache-Control': userInfo.role === 'public' ? 'public, max-age=60' : `private, max-age=60`
+          'Cache-Control': userInfo.role === 'public' ? 'public, max-age=60, stale-while-revalidate=30' : 'private, max-age=60, stale-while-revalidate=30'
         },
       }
     )

@@ -1,13 +1,25 @@
 // src/app/pos/page.jsx
 'use client'
 
-import { useState, useEffect, useContext } from 'react'
+import { useState, useEffect, useContext, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { AuthContext } from '../../../Provider/AuthProvider'
 import { useRouter } from 'next/navigation'
 import Swal from 'sweetalert2'
 import { Store, Search, Trash2, Plus, Minus, ShoppingCart, LogOut, CreditCard } from 'lucide-react'
 import { startTokenRefresh, stopTokenRefresh } from '../../../utils/tokenRefresh'
+
+// ─── Search Cache ───────────────────────────────────────────────────────────
+// Module-level Map so it persists across renders but is cleared on full page
+// reload. Key = "query|branch", Value = { results: [...], fetchedAt: timestamp }
+// TTL: 3 minutes — short enough that stock levels stay reasonably fresh.
+// The cache is fully flushed after every successful sale so stock is accurate.
+const SEARCH_CACHE_TTL_MS = 3 * 60 * 1000 // 3 minutes
+const searchResultCache = new Map()
+
+// ─── User Info Cache ─────────────────────────────────────────────────────────
+// TTL: 1 hour. User role / branch almost never changes during a shift.
+const USER_CACHE_TTL_MS = 60 * 60 * 1000 // 1 hour
 
 export default function POSPage() {
   const { user, logOut } = useContext(AuthContext)
@@ -29,7 +41,10 @@ export default function POSPage() {
     reset,
   } = useForm()
 
-  // Combined authentication and role check
+  // Debounce timer ref — prevents firing a search API call on every keystroke
+  const searchDebounceRef = useRef(null)
+
+  // ─── User Info: Load from localStorage cache first (1-hour TTL) ──────────
   useEffect(() => {
     const fetchUserDetails = async () => {
       if (!user?.email) {
@@ -45,6 +60,38 @@ export default function POSPage() {
           return
         }
 
+        // ── CACHE CHECK: use stored user info if still fresh (< 1 hour) ──
+        try {
+          const cachedTimestamp = localStorage.getItem('user-info-timestamp')
+          const cachedUserRaw   = localStorage.getItem('user-info')
+
+          if (cachedTimestamp && cachedUserRaw) {
+            const age = Date.now() - parseInt(cachedTimestamp, 10)
+            if (age < USER_CACHE_TTL_MS) {
+              const cachedUser = JSON.parse(cachedUserRaw)
+              // Verify the cached user belongs to the current Firebase user
+              if (cachedUser?.email === user.email) {
+                if (cachedUser.role !== 'pos' && cachedUser.role !== 'admin') {
+                  Swal.fire({
+                    icon: 'error',
+                    title: 'Access Denied',
+                    text: 'POS role required',
+                    confirmButtonColor: '#7c3aed',
+                  }).then(() => router.push('/'))
+                  return
+                }
+                setUserInfo(cachedUser)
+                startTokenRefresh()
+                setLoading(false)
+                return // ✅ Served from cache — zero DB hit
+              }
+            }
+          }
+        } catch (_cacheErr) {
+          // If anything goes wrong reading cache, fall through to API call
+        }
+
+        // ── CACHE MISS: fetch from API ────────────────────────────────────
         const response = await fetch(`/api/user?email=${encodeURIComponent(user.email)}`, {
           headers: {
             'Authorization': `Bearer ${token}`
@@ -54,6 +101,7 @@ export default function POSPage() {
         if (response.status === 401) {
           localStorage.removeItem('auth-token')
           localStorage.removeItem('user-info')
+          localStorage.removeItem('user-info-timestamp')
           router.push('/')
           return
         }
@@ -79,7 +127,13 @@ export default function POSPage() {
             }
 
             setUserInfo(userDetails)
-            localStorage.setItem('user-info', JSON.stringify(userDetails))
+            // ── WRITE CACHE: store with timestamp ────────────────────────
+            try {
+              localStorage.setItem('user-info', JSON.stringify(userDetails))
+              localStorage.setItem('user-info-timestamp', String(Date.now()))
+            } catch (_writeErr) {
+              // localStorage write failure is non-fatal — continue normally
+            }
 
             // 🔧 Start automatic token refresh for 24-hour session
             startTokenRefresh()
@@ -104,40 +158,67 @@ export default function POSPage() {
     fetchUserDetails()
   }, [user, router])
 
-  // Search products by branch and filter out 0 stock
-  const handleSearch = async (query) => {
+  // ─── Product Search: debounced + session-cached ───────────────────────────
+  // • 400 ms debounce stops a DB call firing on every keystroke
+  // • Results are cached per {query|branch} for 3 minutes
+  // • Cache is fully flushed after a successful sale (stock may have changed)
+  const handleSearch = (query) => {
+    // Clear any pending debounce timer
+    if (searchDebounceRef.current) {
+      clearTimeout(searchDebounceRef.current)
+    }
+
     if (!query.trim() || !userInfo?.branch) {
       setProducts([])
       return
     }
 
-    try {
-      const token = localStorage.getItem('auth-token')
-      const response = await fetch(
-        `/api/products?search=${encodeURIComponent(query)}&branch=${userInfo.branch}&status=active`,
-        {
-          headers: {
-            'Authorization': `Bearer ${token}`
+    // Schedule the actual search to fire 400 ms after the user stops typing
+    searchDebounceRef.current = setTimeout(async () => {
+      const cacheKey = `${query.trim().toLowerCase()}|${userInfo.branch}`
+
+      // ── CACHE HIT: return stored results if still fresh ───────────────
+      const cached = searchResultCache.get(cacheKey)
+      if (cached && (Date.now() - cached.fetchedAt) < SEARCH_CACHE_TTL_MS) {
+        setProducts(cached.results)
+        return
+      }
+
+      // ── CACHE MISS: hit the API ──────────────────────────────────────
+      try {
+        const token = localStorage.getItem('auth-token')
+        const response = await fetch(
+          `/api/products?search=${encodeURIComponent(query.trim())}&branch=${userInfo.branch}&status=active`,
+          {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
           }
+        )
+
+        if (response.ok) {
+          const data = await response.json()
+
+          const stockKey = `${userInfo.branch}_stock`
+          const productsWithStock = (data.products || []).filter(product => {
+            const stock = product.stock?.[stockKey] || 0
+            return stock > 0
+          })
+
+          // Write to session cache
+          searchResultCache.set(cacheKey, {
+            results: productsWithStock,
+            fetchedAt: Date.now()
+          })
+
+          setProducts(productsWithStock)
+        } else {
+          setProducts([])
         }
-      )
-
-      if (response.ok) {
-        const data = await response.json()
-
-        const stockKey = `${userInfo.branch}_stock`
-        const productsWithStock = (data.products || []).filter(product => {
-          const stock = product.stock?.[stockKey] || 0
-          return stock > 0
-        })
-
-        setProducts(productsWithStock)
-      } else {
+      } catch (error) {
         setProducts([])
       }
-    } catch (error) {
-      setProducts([])
-    }
+    }, 400) // 400 ms debounce
   }
 
   // Add to cart
@@ -320,12 +401,17 @@ export default function POSPage() {
       if (response.status === 401) {
         localStorage.removeItem('auth-token')
         localStorage.removeItem('user-info')
+        localStorage.removeItem('user-info-timestamp')
         router.push('/')
         return
       }
 
       if (response.ok) {
         const result = await response.json()
+
+        // ── FLUSH SEARCH CACHE: stock levels changed after this sale ─────
+        // This ensures the next product search fetches fresh data from DB
+        searchResultCache.clear()
 
         Swal.fire({
           icon: 'success',
@@ -401,6 +487,7 @@ export default function POSPage() {
       await logOut()
       localStorage.removeItem('auth-token')
       localStorage.removeItem('user-info')
+      localStorage.removeItem('user-info-timestamp')
       router.push('/')
     }
   }

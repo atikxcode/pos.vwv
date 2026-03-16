@@ -29,6 +29,7 @@ export default function POSLoginPage() {
     // Clear all auth data
     localStorage.removeItem('auth-token')
     localStorage.removeItem('user-info')
+    localStorage.removeItem('user-info-timestamp')
     sessionStorage.clear()
 
     // 🔧 Stop token refresh on login page
